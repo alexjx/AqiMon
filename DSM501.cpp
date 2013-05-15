@@ -12,70 +12,80 @@ const int DSM501::_pin[] = { PM10_PIN, PM25_PIN };
 
 void DSM501::Isr() {
 	DSM501* sensor = DSM501::getInst();
-	sensor->_pinState[0] = digitalRead(sensor->_pin[0]);
-	sensor->_pinState[1] = digitalRead(sensor->_pin[1]);
+	sensor->_pinState[PM10_IDX] = digitalRead(sensor->_pin[PM10_IDX]);
+	sensor->_pinState[PM25_IDX] = digitalRead(sensor->_pin[PM25_IDX]);
 }
 
 ISR(PCINT1_vect) {
 	DSM501::Isr();
 }
 
-
 DSM501::DSM501() {
 	for (int i = 0; i < 2; i++) {
-		_tm_ms_start[i] = 0;
-		_tm_us_total[i] = 0;
+		_win_start[i] = 0;
+		_low_total[i] = 0;
 		_state[i] = S_Idle;
 		_pinState[i] = HIGH;
-		_tm_us_sig_start[i] = 0;
+		_sig_start[i] = 0;
 		_lastLowRatio[i] = NAN;
 	}
 }
 
 void DSM501::begin() {
-	_tm_ms_start[0] = millis();
-	pinMode(_pin[0], INPUT);
+	_win_start[PM10_IDX] = millis();
+	pinMode(_pin[PM10_IDX], INPUT);
 
-	_tm_ms_start[1] = millis();
-	pinMode(_pin[1], INPUT);
+	_win_start[PM25_IDX] = millis();
+	pinMode(_pin[PM25_IDX], INPUT);
 
 	cli();
 	PCICR 	|= 	_BV(1);
-	PCMSK1 	|=  _BV(2) | _BV(3);
+	PCMSK1 	|=  _BV(2) | _BV(3);	// ENABLE PIN CHANGE
 	sei();
 }
 
 void DSM501::update() {
-	if (_state[0] == S_Idle && _pinState[0] == LOW) {
-		signal_begin(0);
-		_state[0] = S_Start;
-	} else if (_state[0] == S_Start && _pinState[0] == HIGH) {
-		signal_end(0);
-		_state[0] = S_Idle;
+	if (_state[PM10_IDX] == S_Idle && _pinState[PM10_IDX] == LOW) {
+		signal_begin(PM10_IDX);
+		_state[PM10_IDX] = S_Start;
+	} else if (_state[PM10_IDX] == S_Start && _pinState[PM10_IDX] == HIGH) {
+		signal_end(PM10_IDX);
+		_state[PM10_IDX] = S_Idle;
 	}
 
-	if (_state[1] == S_Idle && _pinState[1] == LOW) {
-		signal_begin(1);
-		_state[1] = S_Start;
-	} else if (_state[1] == S_Start && _pinState[1] == HIGH) {
-		signal_end(1);
-		_state[1] = S_Idle;
+	if (_state[PM25_IDX] == S_Idle && _pinState[PM25_IDX] == LOW) {
+		signal_begin(PM25_IDX);
+		_state[PM25_IDX] = S_Start;
+	} else if (_state[PM25_IDX] == S_Start && _pinState[PM25_IDX] == HIGH) {
+		signal_end(PM25_IDX);
+		_state[PM25_IDX] = S_Idle;
 	}
+
+#define SERIAL_CHARTING
+#ifdef SERIAL_CHARTING
+	static ulong_t _SC_lastReport = 0;
+	ulong_t now = millis();
+	if ((now - _SC_lastReport) >= 100) { //report every 0.1s
+		char buf[32];
+		sprintf(buf, "%d,%d", _pinState[PM10_IDX], _pinState[PM25_IDX]);
+		Serial.println(buf);
+	}
+#endif
 }
 
 
 void DSM501::signal_begin(int i) {
-	_tm_us_sig_start[i] = micros();
+	_sig_start[i] = millis();
 }
 
 
 void DSM501::signal_end(int i) {
-	ulong_t tm_us_now = micros();
-	if (_tm_us_sig_start[i] <= tm_us_now && 						// we had a signal, and
-		(tm_us_now - _tm_us_sig_start[i]) >= DSM501_MIN_SIG_SPAN) 	// this signal is not bouncing.
-	{
-		_tm_us_total[i] += tm_us_now - _tm_us_sig_start[i];
-		_tm_us_sig_start[i] = 0;
+	ulong_t now = millis();
+	if (_sig_start[i]) { // we had a signal, and
+		if ((now - _sig_start[i]) >= DSM501_MIN_SIG_SPAN) {	// this signal is not bouncing.
+			_low_total[i] += now - _sig_start[i];
+		}
+		_sig_start[i] = 0;
 	}
 }
 
@@ -83,15 +93,19 @@ void DSM501::signal_end(int i) {
  * Only return the stablized ratio
  */
 double DSM501::getLowRatio(int i) {
-	ulong_t tm_ms_now = millis();
-	ulong_t tm_ms_span = tm_ms_now - _tm_ms_start[i];
+	ulong_t now = millis();
+	ulong_t span = now - _win_start[i];
 
-	if (tm_ms_span >= DSM501_MIN_RATIO_SPAN) {
-		_tm_ms_start[i] = tm_ms_now;
-		double tm_ms_total_low = (double)_tm_us_total[i] / 10.0;
-		_tm_us_total[i] = 0;
+	// special case if the device run too long, the millis() counter wrap back.
+	if (now < _win_start[i]) {
+		span = DSM501_MIN_WIN_SPAN;
+	}
 
-		_lastLowRatio[i] = tm_ms_total_low / (double)tm_ms_span;
+	if (span >= DSM501_MIN_WIN_SPAN) {
+		_lastLowRatio[i] = (double)_low_total[i] / (double)span;
+
+		_win_start[i] = now;
+		_low_total[i] = 0;
 	}
 
 	return _lastLowRatio[i];
@@ -143,13 +157,13 @@ void DSM501::debug(void)
 {
 	Serial.println("--- DSM501 BEGIN ---");
 
-	Serial.println(_tm_ms_start[0]);
-	Serial.println(DSM501_MIN_RATIO_SPAN);
-	Serial.println(DSM501_MIN_RATIO_SPAN - (millis() - _tm_ms_start[0]));
+	Serial.println(_win_start[PM10_IDX]);
+	Serial.println(DSM501_MIN_WIN_SPAN);
+	Serial.println(DSM501_MIN_WIN_SPAN - (millis() - _win_start[PM10_IDX]));
 
-	Serial.println(getLowRatio(0));
-	Serial.println(getLowRatio(1));
+	Serial.println(getLowRatio(PM10_IDX));
+	Serial.println(getLowRatio(PM25_IDX));
 
-	Serial.println(_tm_us_total[0]);
-	Serial.println(_tm_us_total[1]);
+	Serial.println(_low_total[PM10_IDX]);
+	Serial.println(_low_total[PM25_IDX]);
 }

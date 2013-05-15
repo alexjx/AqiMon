@@ -29,41 +29,6 @@
  *  		TX		-> 1
  */
 
-#define SSPEED 	115200
-
-DS1307 ds1307;
-DHT22 dht(A1);
-DSM501* dsm501 = NULL;
-LiquidCrystal lcd(10, 9, A0, 5, 6, 7, 8);
-
-ulong_t lastUpd = 0u;
-ulong_t lcdIntv = 1050u;	// 1s
-
-ulong_t lastLog = 0u;
-ulong_t logIntv = DSM501_MIN_RATIO_SPAN;
-
-//The setup function is called once at startup of the sketch
-void setup() {
-	// Initialize DSM501
-	if (dsm501 == NULL) {
-		dsm501 = DSM501::getInst();
-	}
-	dsm501->begin();
-
-	// Initialize DS
-	ds1307.begin();
-
-	// LCD
-	lcd.begin(16, 2);
-	lcd.noAutoscroll();
-
-	// SD
-	SD.begin(4);
-
-	// Serial
-	Serial.begin(SSPEED);
-}
-
 // data
 struct AirQMsg {
 	float temperature;
@@ -71,6 +36,32 @@ struct AirQMsg {
 	int   dust;
 };
 
+
+/***********************************************
+ * Global Control variable
+ ***********************************************/
+#define SSPEED 	115200
+
+ulong_t lastUpd = 0u;
+ulong_t lcdIntv = 1050u;	// 1s
+
+ulong_t lastLog = 0u;
+ulong_t logIntv = DSM501_MIN_WIN_SPAN;
+
+char buf[64]; // display buffer
+
+
+/***********************************************
+ * Components
+ ***********************************************/
+DS1307 ds1307;
+DHT22 dht(A1);
+DSM501* dsm501 = NULL;
+LiquidCrystal lcd(10, 9, A0, 5, 6, 7, 8);
+
+/***********************************************
+ * Global Control variable
+ ***********************************************/
 int Report(char *buf, bool detail = false) {
 	char buf1[16];
 	int n = 0;
@@ -94,8 +85,31 @@ int Report(char *buf, bool detail = false) {
 	return n;
 }
 
-// The loop function is called in an endless loop
-char buf[64]; // display buffer
+
+
+/***********************************************
+ * Setup
+ ***********************************************/
+void setup() {
+	// Initialize DSM501
+	dsm501 = DSM501::getInst();
+	dsm501->begin();
+
+	// Initialize DS
+	ds1307.begin();
+
+	// LCD
+	lcd.begin(16, 2);
+	lcd.noAutoscroll();
+
+	// SD
+	SD.begin(4);
+
+	// Serial
+	Serial.begin(SSPEED);
+}
+
+
 
 void loop() {
 	// call dsm501 to handle updates.
@@ -113,10 +127,12 @@ void loop() {
 				Report(buf, true);
 				Serial.println(buf);
 				break;
+
 			case 't':
 				ds1307.makeStr(buf);
 				Serial.println(buf);
 				break;
+
 			case 'T':
 			{
 
