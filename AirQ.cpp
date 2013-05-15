@@ -85,10 +85,10 @@ int genReports(char *buf, bool detail = false) {
 	char buf1[16];
 	int n = 0;
 
-	dtostrf(dht.readTemperature(), 0, 0, buf1);
+	dtostrf(dht.readTemperature(), 0, detail ? 2 : 0, buf1);
 	n += sprintf(buf + n, "T:%sC ", buf1);
 
-	dtostrf(dht.readHumidity(), 0, 0, buf1);
+	dtostrf(dht.readHumidity(), 0, detail ? 2 : 0, buf1);
 	n += sprintf(buf + n, "H:%s%% ", buf1);
 
 	if (detail) {
@@ -222,8 +222,10 @@ void loop() {
 			dataFile.println(buf_d);
 
 			dataFile.close();
+
 		}
 
 		lastLog = millis();
+
 	}
 }

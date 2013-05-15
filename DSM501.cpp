@@ -28,6 +28,10 @@ DSM501::DSM501() {
 		_pinState[i] = HIGH;
 		_sig_start[i] = 0;
 		_lastLowRatio[i] = NAN;
+
+		_saf_sum[i] = 0;
+		memset(_saf_ent[i], 0, SAF_WIN_MAX);
+		_saf_idx[i] = 0;
 	}
 }
 
@@ -91,7 +95,7 @@ void DSM501::signal_end(int i) {
 /*
  * Only return the stablized ratio
  */
-double DSM501::getLowRatio(int i) {
+double DSM501::getLowRatio(int i, bool filtered) {
 	ulong_t now = millis();
 	ulong_t span = now - _win_start[i];
 
@@ -101,18 +105,22 @@ double DSM501::getLowRatio(int i) {
 	}
 
 	if (span >= DSM501_MIN_WIN_SPAN) {
-		_lastLowRatio[i] = (double)_low_total[i] / (double)span;
+		int idx = ++_saf_idx[i] % SAF_WIN_MAX;
+		_saf_sum[i] -= _saf_ent[i][idx];
+		_saf_ent[i][idx] = _low_total[i];
+		_saf_sum[i] += _low_total[i];
+
+		if (_saf_idx[i] < SAF_WIN_MAX) {
+			_lastLowRatio[i] = _saf_sum[i] / (DSM501_MIN_WIN_SPAN * _saf_idx[i]);
+		} else {
+			_lastLowRatio[i] = _saf_sum[i] / (DSM501_MIN_WIN_SPAN * SAF_WIN_MAX);
+		}
 
 		_win_start[i] = now;
 		_low_total[i] = 0;
 	}
 
 	return _lastLowRatio[i];
-}
-
-
-ulong_t DSM501::getParticalPcs(int i) {
-	return (ulong_t)(getLowRatio(i) / 100.0 * 4.5 * 12500.0);
 }
 
 
