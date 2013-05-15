@@ -32,10 +32,10 @@ DSM501::DSM501() {
 }
 
 void DSM501::begin() {
-	_win_start[PM10_IDX] = millis();
+	_win_start[PM10_IDX] = millis() + _mS_By_S(60);	// Stable time
 	pinMode(_pin[PM10_IDX], INPUT);
 
-	_win_start[PM25_IDX] = millis();
+	_win_start[PM25_IDX] = millis() + _mS_By_S(60);
 	pinMode(_pin[PM25_IDX], INPUT);
 
 	cli();
@@ -47,21 +47,16 @@ void DSM501::begin() {
 void DSM501::update() {
 	if (_state[PM10_IDX] == S_Idle && _pinState[PM10_IDX] == LOW) {
 		signal_begin(PM10_IDX);
-		_state[PM10_IDX] = S_Start;
 	} else if (_state[PM10_IDX] == S_Start && _pinState[PM10_IDX] == HIGH) {
 		signal_end(PM10_IDX);
-		_state[PM10_IDX] = S_Idle;
 	}
 
 	if (_state[PM25_IDX] == S_Idle && _pinState[PM25_IDX] == LOW) {
 		signal_begin(PM25_IDX);
-		_state[PM25_IDX] = S_Start;
 	} else if (_state[PM25_IDX] == S_Start && _pinState[PM25_IDX] == HIGH) {
 		signal_end(PM25_IDX);
-		_state[PM25_IDX] = S_Idle;
 	}
 
-#define SERIAL_CHARTING
 #ifdef SERIAL_CHARTING
 	static ulong_t _SC_lastReport = 0;
 	ulong_t now = millis();
@@ -75,7 +70,10 @@ void DSM501::update() {
 
 
 void DSM501::signal_begin(int i) {
-	_sig_start[i] = millis();
+	if (millis() >= _win_start[i]) {
+		_sig_start[i] = millis();
+		_state[i] = S_Start;
+	}
 }
 
 
@@ -87,6 +85,7 @@ void DSM501::signal_end(int i) {
 		}
 		_sig_start[i] = 0;
 	}
+	_state[i] = S_Idle;
 }
 
 /*
