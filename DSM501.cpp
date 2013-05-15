@@ -119,9 +119,14 @@ ulong_t DSM501::getParticalPcs(int i) {
 
 double DSM501::getParticalWeight(int i) {
 	/*
-	 * with data sheet... upper boundary around 15% is 1.4mg/m3
+	 * with data sheet... regression function is
+	 * 	y=-0.158484+0.10085x
 	 */
-	return getLowRatio(i) / MAX_LOW_RATIO_OF_1400ug * 1400.0;
+	double weight = -0.158484f + 0.10085f * getLowRatio(i);
+	if (weight < 0.0) {
+		weight = 0.0;
+	}
+	return weight;
 }
 
 int DSM501::getAQI() {
