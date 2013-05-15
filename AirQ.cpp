@@ -67,7 +67,7 @@ ulong_t lastLog = 0u;
 ulong_t logIntv = DSM501_MIN_WIN_SPAN;
 
 char buf_t[32]; // time buffer
-char buf_d[32]; // display buffer
+char buf_d[64]; // display buffer
 
 
 /***********************************************
@@ -75,8 +75,8 @@ char buf_d[32]; // display buffer
  ***********************************************/
 DS1307 ds1307;
 DHT22 dht(DHT22_PIN);
-DSM501* dsm501 = NULL;
 LiquidCrystal lcd(LCD_RS, LCD_RW, LCD_E, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
+DSM501 dsm501(DSM501_PM10, DSM501_PM25);
 
 /***********************************************
  * Report function
@@ -92,14 +92,14 @@ int genReports(char *buf, bool detail = false) {
 	n += sprintf(buf + n, "H:%s%% ", buf1);
 
 	if (detail) {
-		dtostrf(dsm501->getParticalWeight(0), 0, 2, buf1);
+		dtostrf(dsm501.getParticalWeight(0), 0, 2, buf1);
 		n += sprintf(buf + n, "P10:%sug/m3 ", buf1);
 
-		dtostrf(dsm501->getParticalWeight(1), 0, 2, buf1);
+		dtostrf(dsm501.getParticalWeight(1), 0, 2, buf1);
 		n += sprintf(buf + n, "P25:%sug/m3 ", buf1);
 	}
 
-	n += sprintf(buf + n, "%4d", dsm501->getAQI());
+	n += sprintf(buf + n, "%4d", dsm501.getAQI());
 
 	return n;
 }
@@ -111,8 +111,7 @@ int genReports(char *buf, bool detail = false) {
  ***********************************************/
 void setup() {
 	// Initialize DSM501
-	dsm501 = DSM501::getInst();
-	dsm501->begin();
+	dsm501.begin();
 
 	// Initialize DS
 	ds1307.begin();
@@ -122,7 +121,7 @@ void setup() {
 	lcd.noAutoscroll();
 
 	// SD
-	SD.begin(4);
+	SD.begin(SD_CS);
 
 	// Serial
 	Serial.begin(SSPEED);
@@ -134,7 +133,7 @@ void setup() {
  ***********************************************/
 void loop() {
 	// call dsm501 to handle updates.
-	dsm501->update();
+	dsm501.update();
 
 	if (Serial) {
 		if (Serial.available()) {
@@ -181,7 +180,7 @@ void loop() {
 
 			case 'd':
 				Serial.println("--- DEBUG INFO BEGIN ---");
-				dsm501->debug();
+				dsm501.debug();
 				ds1307.debug();
 				Serial.println("--- DEBUG INFO END ---");
 				break;
