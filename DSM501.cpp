@@ -19,11 +19,16 @@ DSM501::DSM501(int pin10, int pin25) {
 }
 
 void DSM501::begin() {
+	_coeff = EEPROM.read(EA_DSM501_COEFF);
+	if (_coeff == 0)
+		_coeff = 1;
+
 	_win_start[PM10_IDX] = millis();
 	pinMode(_pin[PM10_IDX], INPUT);
 
 	_win_start[PM25_IDX] = millis();
 	pinMode(_pin[PM25_IDX], INPUT);
+
 }
 
 void DSM501::update() {
@@ -74,27 +79,22 @@ double DSM501::getLowRatio(int i) {
 	}
 
 	if (span >= DSM501_MIN_WIN_SPAN) {
-		int idx = (_saf_idx[i] + 1) % SAF_WIN_MAX;
-#if 0
-		Serial.print("IDX:");
-		Serial.print(idx);
-		Serial.print(" sum:");
-		Serial.print(_saf_sum[i]);
-		Serial.print(" ent:");
-		Serial.print(_saf_ent[i][idx]);
-#endif
+		int idx = (++_saf_idx[i]) % SAF_WIN_MAX;
 		_saf_sum[i] -= _saf_ent[i][idx];
 		_saf_ent[i][idx] = _low_total[i];
 		_saf_sum[i] += _low_total[i];
-		_saf_idx[i] = idx;
 
-		_lastLowRatio[i] = (double)_saf_sum[i] * 100.0 / (double)(DSM501_MIN_WIN_SPAN * SAF_WIN_MAX);
+		if (_saf_idx[i] < SAF_WIN_MAX) {
+			_lastLowRatio[i] = (double)_saf_sum[i] * 100.0 / (double)(DSM501_MIN_WIN_SPAN * _saf_idx[i]);
+		} else {
+			_lastLowRatio[i] = (double)_saf_sum[i] * 100.0 / (double)(DSM501_MIN_WIN_SPAN * SAF_WIN_MAX);
+		}
 
 		_win_start[i] = now;
 		_low_total[i] = 0;
 	}
 
-	return _lastLowRatio[i] / 1.0;
+	return _lastLowRatio[i] / (double)_coeff;
 }
 
 

@@ -5,6 +5,7 @@
 #include "LiquidCrystal.h"
 #include "DS1307.h"
 #include "SD.h"
+#include "EEPROM.h"
 
 /*
  * Pin definition:
@@ -153,6 +154,14 @@ void loop() {
 				Serial.println(buf_t);
 				break;
 
+			case 'C':
+				dsm501.setCoeff(Serial.parseInt());
+				/* fallthru */
+			case 'c':
+				Serial.print("Current DSM501 COEFF:");
+				Serial.println(dsm501.getCoeff());
+				break;
+
 			case 'T':
 			{
 
@@ -207,6 +216,7 @@ void loop() {
 	 * Log data to SD card if possible.
 	 */
 	if (millis() - lastLog > logIntv) {
+
 		File dataFile = SD.open("aqi_log.txt", FILE_WRITE);
 
 		if (dataFile) {
@@ -223,8 +233,6 @@ void loop() {
 			dataFile.close();
 
 		}
-
 		lastLog = millis();
-
 	}
 }

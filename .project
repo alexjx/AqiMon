@@ -33,6 +33,11 @@
 			<locationURI>PivateLibPath/DHT22</locationURI>
 		</link>
 		<link>
+			<name>EEPROM</name>
+			<type>2</type>
+			<locationURI>ArduinoLibPath/EEPROM</locationURI>
+		</link>
+		<link>
 			<name>LiquidCrystal</name>
 			<type>2</type>
 			<locationURI>ArduinoLibPath/LiquidCrystal</locationURI>

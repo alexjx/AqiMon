@@ -6,6 +6,11 @@
  #include "WProgram.h"
 #endif
 
+#include "EEPROM.h"
+
+
+#define EA_DSM501_COEFF	0
+
 typedef unsigned long ulong_t;
 
 #define _mS_By_S(x)	((x) * 1000ul)
@@ -21,7 +26,7 @@ typedef unsigned long ulong_t;
 #define PM10_IDX	0
 #define PM25_IDX	1
 
-#define SAF_WIN_MAX 15	// 15 mins
+#define SAF_WIN_MAX 30	// mins
 
 enum State {
 	S_Idle,
@@ -40,6 +45,16 @@ public:
 
 	void 	debug();
 
+	uint8_t getCoeff() const {
+		return _coeff;
+	}
+
+	uint8_t setCoeff(uint8_t coeff) {
+		_coeff = coeff;
+		EEPROM.write(EA_DSM501_COEFF, _coeff);
+		return _coeff;
+	}
+
 protected:
 	void signal_begin(int i);
 	void signal_end(int i);
@@ -56,6 +71,7 @@ private:
 	ulong_t _saf_ent[2][SAF_WIN_MAX];
 	ulong_t	_saf_idx[2];
 
+	uint8_t	_coeff;
 	double 	_lastLowRatio[2];
 };
 
