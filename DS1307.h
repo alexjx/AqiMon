@@ -29,9 +29,9 @@ public:
 	DS1307();
 	void begin();
 
-	void setDateTimeBCD(int y, int M, int d, int h, int m, int s, bool pm);
+	void setDateTimeBCD(int y, int M, int d, int h, int m, int s);
 	void updateDateTime();
-	void makeStr(char* buf);
+	int makeStr(char* buf, int n);
 
 	void debug();
 

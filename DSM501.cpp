@@ -1,6 +1,9 @@
 #include "DSM501.h"
 #include <avr/interrupt.h>
 
+
+uint8_t dsm501_coeff = 1;
+
 DSM501::DSM501(int pin10, int pin25) {
 	_pin[PM10_IDX] = pin10;
 	_pin[PM25_IDX] = pin25;
@@ -13,23 +16,33 @@ DSM501::DSM501(int pin10, int pin25) {
 		_lastLowRatio[i] = NAN;
 
 		_saf_sum[i] = 0;
-		memset(_saf_ent[i], 0, SAF_WIN_MAX * sizeof(ulong_t));
+		memset(_saf_ent[i], 0, SAF_WIN_MAX * sizeof(uint32_t));
 		_saf_idx[i] = 0;
 	}
 }
 
+
 void DSM501::begin() {
-	_coeff = EEPROM.read(EA_DSM501_COEFF);
-	if (_coeff == 0)
-		_coeff = 1;
+	_coeff = dsm501_coeff;
 
 	_win_start[PM10_IDX] = millis();
 	pinMode(_pin[PM10_IDX], INPUT);
 
 	_win_start[PM25_IDX] = millis();
 	pinMode(_pin[PM25_IDX], INPUT);
-
 }
+
+
+void DSM501::reset() {
+	_win_start[PM10_IDX] = millis();
+	_win_start[PM25_IDX] = millis();
+}
+
+uint8_t DSM501::setCoeff(uint8_t coeff) {
+	_coeff = coeff;
+	return _coeff;
+}
+
 
 void DSM501::update() {
 	if (_state[PM10_IDX] == S_Idle && digitalRead(_pin[PM10_IDX]) == LOW) {
@@ -55,7 +68,7 @@ void DSM501::signal_begin(int i) {
 
 
 void DSM501::signal_end(int i) {
-	ulong_t now = millis();
+	uint32_t now = millis();
 	if (_sig_start[i]) { // we had a signal, and
 		if ((now - _sig_start[i]) <= DSM501_MAX_SIG_SPAN &&
 			(now - _sig_start[i]) >= DSM501_MIN_SIG_SPAN) {	// this signal is not bouncing.
@@ -66,12 +79,13 @@ void DSM501::signal_end(int i) {
 	_state[i] = S_Idle;
 }
 
+
 /*
- * Only return the stablized ratio
+ * Only return the stabilized ratio
  */
 double DSM501::getLowRatio(int i) {
-	ulong_t now = millis();
-	ulong_t span = now - _win_start[i];
+	uint32_t now = millis();
+	uint32_t span = now - _win_start[i];
 
 	// special case if the device run too long, the millis() counter wrap back.
 	if (now < _win_start[i]) {
@@ -108,6 +122,7 @@ double DSM501::getParticalWeight(int i) {
 	return weight < 0.0 ? 0.0 : weight;
 }
 
+
 int DSM501::getAQI() {
 	// this works only under both pin configure
 	int aqi = -1;
@@ -137,6 +152,7 @@ int DSM501::getAQI() {
 }
 
 
+#ifdef DEBUG
 void DSM501::debug(void)
 {
 	Serial.println("--- DSM501 BEGIN ---");
@@ -151,3 +167,4 @@ void DSM501::debug(void)
 	Serial.println(_low_total[PM10_IDX]);
 	Serial.println(_low_total[PM25_IDX]);
 }
+#endif

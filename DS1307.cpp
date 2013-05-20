@@ -22,15 +22,13 @@ void DS1307::begin() {
 	Wire.begin();
 }
 
-void DS1307::setDateTimeBCD(int y, int M, int d, int h, int m, int s, bool pm) {
-	byte buf[7];
+void DS1307::setDateTimeBCD(int Y, int M, int d, int h, int m, int s) {
+	byte buf[7] = {0};
 
-	buf[DS_YEA_OFF] = y & 0x7fu;
+	buf[DS_YEA_OFF] = Y & 0x7fu;
 	buf[DS_MON_OFF] = M & 0x1fu;
 	buf[DS_DAT_OFF] = d & 0x3fu;
-	buf[DS_HOU_OFF] = h & 0x1fu;
-	if (pm)
-		buf[DS_HOU_OFF] |= 0x20u;
+	buf[DS_HOU_OFF] = (h & 0x3fu) | _BV(6); // set 24h
 	buf[DS_MIN_OFF] = m & 0x7fu;
 	buf[DS_SEC_OFF] = s & 0x7fu;
 
@@ -42,6 +40,7 @@ void DS1307::setDateTimeBCD(int y, int M, int d, int h, int m, int s, bool pm) {
 	updateDateTime();
 }
 
+#ifdef DEBUG
 void DS1307::debug() {
 	char buf[32];
 	Serial.println("--- DS1307 BEGIN ---");
@@ -56,6 +55,7 @@ void DS1307::debug() {
 		Serial.println(buf);
 	}
 }
+#endif
 
 void DS1307::readRawData(byte* buf) {
 	// reset internal address
@@ -75,12 +75,11 @@ void DS1307::updateDateTime() {
 	parseData(buf);
 }
 
-void DS1307::makeStr(char* buf) {
+int DS1307::makeStr(char* buf, int n) {
 	updateDateTime();
-
-	sprintf(buf, "%02d/%02d %02d:%02d:%02d%s",
+	return snprintf(buf, n, "%02d/%02d %02d:%02d:%02d%s",
 			month, day, hour, min, sec,
-			(m == M_24) ? "" : (m == M_AM) ? "AM" : "PM");
+			(m == M_24) ? "" : (m == M_AM) ? "A" : "P");
 }
 
 #define BCD_Byte(x, h, l) (((x) & (l)) + (((x) & ((h) << 4)) >> 4) * 10)
@@ -90,7 +89,7 @@ void DS1307::makeStr(char* buf) {
 void DS1307::parseData(byte *buf) {
 	sec = BCD_Byte(buf[DS_SEC_OFF], 0x7u, 0xfu);
 	min = BCD_Byte(buf[DS_MIN_OFF], 0x7u, 0xfu);
-	hour = BCD_Byte(buf[DS_HOU_OFF],0x1u, 0xfu);
+	hour = BCD_Byte(buf[DS_HOU_OFF], IS_24H(buf[DS_HOU_OFF]) ? 0x2u : 0x1u, 0xfu);
 	if (IS_24H(buf[DS_HOU_OFF])) {
 		m = M_24;
 	} else if (IS_PM(buf[DS_HOU_OFF])){

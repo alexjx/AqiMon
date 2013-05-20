@@ -5,7 +5,7 @@
 #include "LiquidCrystal.h"
 #include "DS1307.h"
 #include "SD.h"
-#include "EEPROM.h"
+#include "USBPort.h"
 
 /*
  * Pin definition:
@@ -47,7 +47,6 @@
 #define SD_MOSI		MOSI
 #define SD_SCK		SCK
 
-
 // data
 struct AirQMsg {
 	float temperature;
@@ -61,15 +60,22 @@ struct AirQMsg {
  ***********************************************/
 #define SSPEED 	115200
 
-ulong_t lastUpd = 0u;
-ulong_t lcdIntv = 1000u;	// 1s
+uint32_t lcd_lu_time = 0u;
+uint32_t lcd_tm_Intv = 1000ul;
+uint32_t lcd_lu_aqdat = 0u;
+uint32_t lcd_ad_Intv = 5000ul;
 
-ulong_t lastLog = 0u;
-ulong_t logIntv = DSM501_MIN_WIN_SPAN;
+uint32_t lastLog = 0u;
+uint32_t logIntv = DSM501_MIN_WIN_SPAN;
 
-char buf_t[32]; // time buffer
-char buf_d[64]; // display buffer
+union _FB {
+	struct {
+		char line1[32]; // time buffer
+		char line2[64]; // display buffer
+	};
+} FB;
 
+uint8_t sd_initialized = false;
 
 /***********************************************
  * Components
@@ -105,7 +111,156 @@ int genReports(char *buf, bool detail = false) {
 	return n;
 }
 
+void displayTime() {
+	lcd.setCursor(0, 0);
+	ds1307.makeStr(FB.line1, 31);
+	lcd.print(FB.line1);
+}
 
+void displaySdState() {
+	lcd.setCursor(15, 0);
+	if (sd_initialized) {
+		lcd.print("*");
+	} else {
+		lcd.print(" ");
+	}
+}
+
+void displayAirData() {
+	lcd.setCursor(0, 1);
+	genReports(FB.line2);
+	lcd.print(FB.line2);
+}
+
+void lcd_ref_line(int line) {
+	if (line == 1) {
+		displayTime();
+		displaySdState();
+	} else if (line == 2) {
+		displayAirData();
+	}
+}
+
+void log2Sd() {
+	File dataFile = SD.open("aqi_log.txt", FILE_WRITE);
+
+	if (dataFile) {
+		// since LCD is updating this every sec, we skip this
+//			ds1307.makeStr(buf_t);
+		dataFile.print(FB.line1);
+
+		dataFile.print(" "); // Delimiter
+
+		// log more detail info
+		genReports(FB.line2, true);
+		dataFile.println(FB.line2);
+
+		dataFile.close();
+
+		sd_initialized = true;
+	} else {
+		sd_initialized = false;
+	}
+}
+
+/***********************************************
+ * Serial
+ ***********************************************/
+#define AQI_SER_OK		'O'
+#define AQI_SER_ERROR 	'E'
+#define AQI_SER_EOP		' '
+
+uint8_t getch() {
+	while(!Serial.available());
+	return Serial.read();
+}
+
+void fill(uint8_t* buff, int n) {
+	for (int x = 0; x < n; x++) {
+		buff[x] = getch();
+	}
+}
+
+bool ch_sync() {
+	if (AQI_SER_EOP != getch()) {
+		Serial.print(AQI_SER_ERROR);
+		return false;
+	}
+	Serial.print(AQI_SER_OK);
+	return true;
+}
+
+int SerBcdParseByte(uint8_t *&p) {
+	int v = (*p++ - '0') << 4;
+	v |= (*p++ - '0');
+	return v;
+}
+
+void procSerial()
+{
+	uint8_t val = getch();
+	switch(val) {
+	case 'r':
+		ds1307.makeStr(FB.line1, 32);
+		Serial.print(FB.line1);
+		Serial.print(" ");
+		genReports(FB.line2, true);
+		Serial.println(FB.line2);
+		break;
+
+	case 'C':
+		{
+			if (!ch_sync())
+				return;
+
+			dsm501.setCoeff(Serial.parseInt());
+
+			if (!ch_sync())
+				return;
+
+			break;
+		}
+	case 'c':
+		Serial.print("Current DSM501 COEFF:");
+		Serial.println(dsm501.getCoeff());
+		break;
+
+#ifdef DEBUG
+	case 'd':
+		dsm501.debug();
+		break;
+#endif
+
+	case 'T':
+		{
+			if (!ch_sync())
+				return;
+
+			uint8_t buf[12];
+			int Y, M, D, h, m, s;
+
+			fill(buf, 12);
+			if (!ch_sync())
+				return;
+
+			uint8_t *p = buf;
+			Y = SerBcdParseByte(p);
+			M = SerBcdParseByte(p);
+			D = SerBcdParseByte(p);
+			h = SerBcdParseByte(p);
+			m = SerBcdParseByte(p);
+			s = SerBcdParseByte(p);
+
+			ds1307.setDateTimeBCD(Y, M, D, h, m, s);
+
+			ds1307.makeStr(FB.line1, 32);
+			Serial.println(FB.line1);
+			Serial.print(AQI_SER_EOP);
+
+			break;
+		}
+	} // end of switch
+}
 
 /***********************************************
  * Setup
@@ -122,10 +277,39 @@ void setup() {
 	lcd.noAutoscroll();
 
 	// SD
-	SD.begin(SD_CS);
+	pinMode(SD_CS, OUTPUT);
+	if (SD.begin(SD_CS)) {
+		sd_initialized = true;
+	} else {
+		sd_initialized = false;
+	}
 
 	// Serial
 	Serial.begin(SSPEED);
+
+#ifdef EN_USB
+	// USB
+	UsbPort.begin();
+#endif
+
+	lcd.setCursor(0, 1);
+	lcd.print("Initializing...");
+
+	// wait 60s for DSM to warm up
+	for (uint32_t now = millis(); now < 60000ul; now = millis()) {
+		lcd_ref_line(1);
+		delay(10);
+
+		if (Serial.available())
+			procSerial();
+
+#ifdef EN_USB
+		UsbPort.poll();
+#endif
+	}
+
+	// Need to reset counter here...
+	dsm501.reset();
 }
 
 
@@ -136,103 +320,36 @@ void loop() {
 	// call dsm501 to handle updates.
 	dsm501.update();
 
+#ifdef EN_USB
+	// usb update
+	UsbPort.poll();
+#endif
+
 	if (Serial) {
 		if (Serial.available()) {
-
-			int val = Serial.read();
-			switch(val) {
-			case 'r':
-				ds1307.makeStr(buf_t);
-				Serial.print(buf_t);
-				Serial.print(" ");
-				genReports(buf_d, true);
-				Serial.println(buf_d);
-				break;
-
-			case 't':
-				ds1307.makeStr(buf_t);
-				Serial.println(buf_t);
-				break;
-
-			case 'C':
-				dsm501.setCoeff(Serial.parseInt());
-				/* fallthru */
-			case 'c':
-				Serial.print("Current DSM501 COEFF:");
-				Serial.println(dsm501.getCoeff());
-				break;
-
-			case 'T':
-			{
-
-#define ParseOne(v) {		\
-	char p = Serial.read();	\
-	v = (p - '0') << 4;		\
-	p = Serial.read();		\
-	v |= (p - '0');			\
-	p = Serial.read();		\
-}
-				int Y, M, D, h, m, s;
-				char pm;
-				ParseOne(Y);
-				ParseOne(M);
-				ParseOne(D);
-				ParseOne(h);
-				ParseOne(m);
-				ParseOne(s);
-				pm = Serial.read();
-				Serial.read();
-
-				ds1307.setDateTimeBCD(Y, M, D, h, m, s, pm == 'P');
-				break;
-			}
-
-			case 'd':
-				Serial.println("--- DEBUG INFO BEGIN ---");
-				dsm501.debug();
-				ds1307.debug();
-				Serial.println("--- DEBUG INFO END ---");
-				break;
-			}
+			procSerial();
 		}
 	} // Serial
 
+	uint32_t now = millis();
 	/*
 	 * Update LCD every seconds
 	 */
-	if (millis() - lastUpd > lcdIntv) {
-		lcd.setCursor(0, 0);
-		ds1307.makeStr(buf_t);
-		lcd.print(buf_t);
+	if (now - lcd_lu_time > lcd_tm_Intv) {
+		lcd_ref_line(1);
+		lcd_lu_time = now;
+	}
 
-		lcd.setCursor(0, 1);
-		genReports(buf_d);
-		lcd.print(buf_d);
-
-		lastUpd = millis();
+	if (now - lcd_lu_aqdat > lcd_ad_Intv) {
+		lcd_ref_line(2);
+		lcd_lu_aqdat = now;
 	}
 
 	/*
 	 * Log data to SD card if possible.
 	 */
-	if (millis() - lastLog > logIntv) {
-
-		File dataFile = SD.open("aqi_log.txt", FILE_WRITE);
-
-		if (dataFile) {
-			// since LCD is updating this every sec, we skip this
-//			ds1307.makeStr(buf_t);
-			dataFile.print(buf_t);
-
-			dataFile.print(" "); // Delimiter
-
-			// log more detail info
-			genReports(buf_d, true);
-			dataFile.println(buf_d);
-
-			dataFile.close();
-
-		}
-		lastLog = millis();
+	if (sd_initialized && now - lastLog > logIntv) {
+		log2Sd();
+		lastLog = now;
 	}
 }
